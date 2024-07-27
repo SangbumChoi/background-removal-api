@@ -5,3 +5,4 @@ onnx
 onnxruntime
 torch
 torchvision
+timm
