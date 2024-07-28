@@ -1,26 +1,33 @@
 from flask import Flask, jsonify, request
-from utils import preprocess
+from InSpyReNet.inspyrenet import process_image, check_alpha_layer, get_polygon_from_mask
+from RepViT.repvit import repvit
 import cv2
 import numpy as np
 import json
+from PIL import Image
+import io
+import os
 
-try:
-    import onnxruntime  # type: ignore
-
-    onnxruntime_exists = True
-except ImportError:
-    onnxruntime_exists = False
 
 app = Flask(__name__)
 
-encoder_file = f"RepViT/onnx/repvit_encoder_1024.onnx"
-decoder_file = f"RepViT/onnx/repvit_decoder_1024.onnx"
+def check_input_variables(request):
+    # 요청에서 파일이 있는지 확인
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file in request'}), 400
+    
+    if 'x' not in request.form or 'y' not in request.form:
+        return jsonify({'error': 'No x or y coordinate in request'}), 400
 
-# set cpu provider default
-providers = ["CPUExecutionProvider"]
+    return True
 
-ort_encoder_session = onnxruntime.InferenceSession(encoder_file, providers=providers)
-ort_decoder_session = onnxruntime.InferenceSession(decoder_file, providers=providers)
+def save_result(image_file, save_directory, image):
+    original_filename = image_file.filename
+    name, ext = os.path.splitext(original_filename)
+    new_filename = f"result_{name}.png"
+    save_path = os.path.join(save_directory, new_filename)
+    # Save the image to the new path
+    image.save(save_path, 'PNG')
 
 
 # 기본 엔드포인트
@@ -30,7 +37,7 @@ def hello_world():
 
 # JSON 데이터를 반환하는 엔드포인트
 @app.route('/api/rep_vit/point_based_mask', methods=['POST'])
-def get_data():
+def generate_rep_vit_mask():
     # 요청에서 파일이 있는지 확인
     if 'image' not in request.files:
         return jsonify({'error': 'No image file in request'}), 400
@@ -42,31 +49,7 @@ def get_data():
     image = cv2.cvtColor(cv2.imdecode(image_bytes, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
 
     try:
-        # 이미지를 열기        
-        raw_img_shape = image.shape
-        print('raw_image_shape', raw_img_shape)
-        raw_img = preprocess(image, img_size=1024)
-
-        ort_encoder_inputs = {"x": raw_img}
-        ort_outputs = ort_encoder_session.run(None, ort_encoder_inputs)
-        print('feature_shape', ort_outputs[0].shape)
-
-        mask_input_size = [x for x in [256, 256]]
-        point_coords = np.random.randint(low=0, high=1024, size=(1, 1, 2)).astype(np.float32)
-        mask_input = np.zeros((1, 1, *mask_input_size), dtype=np.float32)
-        has_mask_input = np.zeros(1, dtype=np.float32)
-        point_labels = np.array([[1]], dtype=np.float32)
-
-        ort_decoder_inputs = {
-            "image_embeddings": ort_outputs[0],
-            "point_coords": point_coords,
-            "point_labels": point_labels,
-            "mask_input": mask_input,
-            "has_mask_input": has_mask_input,
-            "orig_im_size": np.array(raw_img_shape[:2]).astype(np.float32),
-        }
-
-        ort_outputs = ort_decoder_session.run(None, ort_decoder_inputs)[0]
+        ort_outputs = repvit(image=image)
         json_outputs = json.dumps({'ort_outputs': ort_outputs.tolist()})
 
         response = {
@@ -76,8 +59,48 @@ def get_data():
         return jsonify(response), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+# JSON 데이터를 반환하는 엔드포인트
+@app.route('/api/inspyrenet/point_based_mask', methods=['POST'])
+def generate_inspyrenet_mask():
+    # 요청에서 파일이 있는지 확인
+    check = check_input_variables(request=request)
+    if not check:
+        return check
+    
+    # Get the coordinates from the request
+    x = int(request.form['x'])
+    y = int(request.form['y'])
 
+    # Get the images from the request
+    image_file = request.files['image']
+
+    # Read the image file from memory
+    image = Image.open(io.BytesIO(image_file.read()))
+
+    try:
+        outputs = process_image(input_image=image, output_type="default")
+        is_in_mask, alpha = check_alpha_layer(image=outputs, x=x, y=y)
+        if not is_in_mask:
+            return jsonify({'error': 'input point has no mask'}), 500
+        contour, bounding_box = get_polygon_from_mask(image=image, mask=alpha, x=x, y=y)
+        print(bounding_box)
+        outputs = outputs.crop(bounding_box)
+        # Save the image to a desired location
+        save_result(image_file=image_file, save_directory='/Users/choisangbum/Downloads/background-removal-api/examples', image=outputs)
+        json_outputs = json.dumps({'ort_outputs': outputs.tolist()})
+
+        response = {
+            'message': 'Image received',
+            'ort_outputs': json_outputs
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+
+# /usr/bin/python3 /Users/choisangbum/Downloads/background-removal-api/mask_generate_api.py
+# curl -X POST http://127.0.0.1:5000/api/rep_vit/point_based_mask -F "image=@/Users/choisangbum/Downloads/background-removal-api/examples/example1.jpg"
+# curl -X POST http://127.0.0.1:5000/api/inspyrenet/point_based_mask -F "image=@/Users/choisangbum/Downloads/background-removal-api/examples/example1.jpg" -F "x=10" -F "y=20"
 if __name__ == '__main__':
     app.run(debug=True)
-    # /usr/bin/python3 /Users/choisangbum/Downloads/background-removal-api/mask_generate_api.py
-    # curl -X POST http://127.0.0.1:5000/api/rep_vit/point_based_mask -F "image=@/Users/choisangbum/Downloads/background-removal-api/examples/example1.jpg"

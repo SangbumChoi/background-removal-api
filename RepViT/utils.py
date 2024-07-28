@@ -1,12 +1,9 @@
-import cv2
-from typing import Any, Tuple, Union
-from argparse import ArgumentParser
+from typing import Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torchvision.transforms.functional import resize
-import matplotlib.pyplot as plt
 
 class SamResize:
     def __init__(self, size: int) -> None:
