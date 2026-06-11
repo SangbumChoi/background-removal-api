@@ -52,37 +52,40 @@ def default_output_path(image: ImageInput, kind: str = "rgba") -> Path:
 
 
 class BackgroundRemover:
-    """Reusable background remover backed by InSpyReNet.
+    """Reusable, model-agnostic background remover.
 
     Instantiate once and call :meth:`remove` repeatedly to amortize model
     loading. All methods accept a file path, raw bytes, a numpy array, or a
-    PIL image as input.
+    PIL image as input, and every model's native output is normalized to the
+    same PIL types.
 
     Args:
-        mode: ``"base"`` (quality), ``"fast"`` (speed), or ``"base-nightly"``.
-        device: torch device string such as ``"cuda:0"`` or ``"cpu"``.
+        model: a ``"backend[:variant]"`` spec string, e.g. ``"inspyrenet"``,
+            ``"inspyrenet:fast"``, ``"rembg:isnet-anime"``, ``"birefnet"``,
+            ``"rmbg"``, ``"ben2"``. See
+            :func:`background_remove_sdk.models.list_models`.
+        device: device hint such as ``"cuda:0"`` or ``"cpu"``.
             Auto-detected when ``None``.
-        jit: enable TorchScript JIT compilation of the model.
+        **model_options: extra options forwarded to the backend.
     """
 
-    def __init__(self, mode: str = "base", device: Optional[str] = None, jit: bool = False):
-        self.mode = mode
+    def __init__(self, model: str = "inspyrenet", device: Optional[str] = None, **model_options):
+        self.model = model
         self.device = device
-        self.jit = jit
-        self._remover = None
+        self.model_options = model_options
+        self._backend = None
         self._lock = threading.Lock()
 
-    def _get_remover(self):
-        if self._remover is None:
+    def _get_backend(self):
+        if self._backend is None:
             with self._lock:
-                if self._remover is None:
-                    from transparent_background import Remover
+                if self._backend is None:
+                    from background_remove_sdk.models import create_backend
 
-                    kwargs = {"mode": self.mode, "jit": self.jit}
-                    if self.device is not None:
-                        kwargs["device"] = self.device
-                    self._remover = Remover(**kwargs)
-        return self._remover
+                    self._backend = create_backend(
+                        self.model, device=self.device, **self.model_options
+                    )
+        return self._backend
 
     def remove(self, image: ImageInput, output_path: Optional[Union[str, Path]] = None) -> Image.Image:
         """Remove the background from a single image.
@@ -91,10 +94,7 @@ class BackgroundRemover:
         ``output_path`` is given, the result is also saved there as PNG.
         """
         img = load_image(image).convert("RGB")
-        output = self._get_remover().process(img, type="rgba")
-        if not isinstance(output, Image.Image):
-            output = Image.fromarray(output)
-        output = output.convert("RGBA")
+        output = self._get_backend().remove(img)
         if output_path is not None:
             output.save(output_path, "PNG")
         return output
@@ -102,11 +102,7 @@ class BackgroundRemover:
     def mask(self, image: ImageInput, output_path: Optional[Union[str, Path]] = None) -> Image.Image:
         """Return the foreground mask as a grayscale (``L``) image."""
         img = load_image(image).convert("RGB")
-        output = self._get_remover().process(img, type="map")
-        if isinstance(output, Image.Image):
-            mask = output.convert("L")
-        else:
-            mask = Image.fromarray((np.asarray(output) * 255).astype(np.uint8), mode="L")
+        mask = self._get_backend().predict_mask(img)
         if output_path is not None:
             mask.save(output_path, "PNG")
         return mask
@@ -165,37 +161,37 @@ _default_removers: dict = {}
 _default_removers_lock = threading.Lock()
 
 
-def _shared_remover(mode: str, device: Optional[str]) -> BackgroundRemover:
-    key = (mode, device)
+def _shared_remover(model: str, device: Optional[str]) -> BackgroundRemover:
+    key = (model, device)
     if key not in _default_removers:
         with _default_removers_lock:
             if key not in _default_removers:
-                _default_removers[key] = BackgroundRemover(mode=mode, device=device)
+                _default_removers[key] = BackgroundRemover(model=model, device=device)
     return _default_removers[key]
 
 
 def remove_background(
     image: ImageInput,
     output_path: Optional[Union[str, Path]] = None,
-    mode: str = "base",
+    model: str = "inspyrenet",
     device: Optional[str] = None,
 ) -> Image.Image:
     """Remove the background from a single image.
 
     This is the one-call entrypoint of the SDK. The underlying model is
-    loaded once per ``(mode, device)`` combination and reused across calls.
+    loaded once per ``(model, device)`` combination and reused across calls.
     """
-    return _shared_remover(mode, device).remove(image, output_path=output_path)
+    return _shared_remover(model, device).remove(image, output_path=output_path)
 
 
 def generate_mask(
     image: ImageInput,
     output_path: Optional[Union[str, Path]] = None,
-    mode: str = "base",
+    model: str = "inspyrenet",
     device: Optional[str] = None,
 ) -> Image.Image:
     """Generate the foreground mask for a single image."""
-    return _shared_remover(mode, device).mask(image, output_path=output_path)
+    return _shared_remover(model, device).mask(image, output_path=output_path)
 
 
 def extract_object_at_point(
@@ -203,8 +199,8 @@ def extract_object_at_point(
     x: int,
     y: int,
     output_path: Optional[Union[str, Path]] = None,
-    mode: str = "base",
+    model: str = "inspyrenet",
     device: Optional[str] = None,
 ) -> Image.Image:
     """Extract the foreground object containing the point ``(x, y)``."""
-    return _shared_remover(mode, device).extract_object(image, x, y, output_path=output_path)
+    return _shared_remover(model, device).extract_object(image, x, y, output_path=output_path)

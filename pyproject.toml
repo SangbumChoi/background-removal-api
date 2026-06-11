@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "background-remove-sdk"
-version = "0.1.0"
-description = "Remove image backgrounds with one call. Includes CLI, agent-framework tools, and an MCP server."
+version = "0.2.0"
+description = "Universal background-removal SDK: one interface over InSpyReNet, rembg (U2-Net/IS-Net/BiRefNet), BRIA RMBG, BEN2 and custom models. Includes CLI, agent-framework tools, and an MCP server."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -25,8 +25,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rembg = ["rembg[cpu]>=2.0.50"]
+rembg-gpu = ["rembg[gpu]>=2.0.50"]
+hf = ["torch>=2.0", "torchvision>=0.15", "transformers>=4.39", "timm>=0.9", "einops>=0.7"]
 server = ["flask>=2.0"]
 mcp = ["mcp>=1.0"]
+all = ["background-remove-sdk[rembg,hf,server,mcp]"]
 dev = ["pytest>=7.0"]
 
 [project.urls]

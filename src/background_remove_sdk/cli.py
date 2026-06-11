@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="bg-remove",
         description="Remove the background from an image and save a transparent PNG.",
     )
-    parser.add_argument("input", help="path to the input image")
+    parser.add_argument("input", nargs="?", help="path to the input image")
     parser.add_argument(
         "-o",
         "--output",
@@ -33,10 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="extract only the object containing pixel (X, Y), cropped to its bounding box",
     )
     parser.add_argument(
-        "--mode",
-        default="base",
-        choices=["base", "fast", "base-nightly"],
-        help="model variant: base (quality), fast (speed) (default: base)",
+        "--model",
+        default="inspyrenet",
+        help=(
+            'model spec "backend[:variant]", e.g. inspyrenet, inspyrenet:fast, '
+            "rembg:isnet-anime, birefnet, rmbg, ben2 (default: inspyrenet). "
+            "See --list-models."
+        ),
+    )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="list available model backends and exit",
     )
     parser.add_argument(
         "--device",
@@ -47,7 +55,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.list_models:
+        from background_remove_sdk.models import list_models
+
+        for name, info in list_models().items():
+            print(f"{name} (default variant: {info['default_variant']})")
+            print(f"  {info['description']}")
+            if info["variants"]:
+                print(f"  variants: {', '.join(info['variants'])}")
+            print(f"  install: {info['install']}")
+        return 0
+
+    if args.input is None:
+        parser.error("input image path is required (or use --list-models)")
 
     if args.mask and args.point:
         print("error: --mask and --point cannot be combined", file=sys.stderr)
@@ -58,17 +81,17 @@ def main(argv=None) -> int:
 
     try:
         if args.mask:
-            core.generate_mask(args.input, output_path=output, mode=args.mode, device=args.device)
+            core.generate_mask(args.input, output_path=output, model=args.model, device=args.device)
         elif args.point:
             x, y = args.point
             core.extract_object_at_point(
-                args.input, x, y, output_path=output, mode=args.mode, device=args.device
+                args.input, x, y, output_path=output, model=args.model, device=args.device
             )
         else:
             core.remove_background(
-                args.input, output_path=output, mode=args.mode, device=args.device
+                args.input, output_path=output, model=args.model, device=args.device
             )
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

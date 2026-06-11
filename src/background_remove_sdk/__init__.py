@@ -18,8 +18,9 @@ from background_remove_sdk.core import (
     load_image,
     remove_background,
 )
+from background_remove_sdk.models import list_models, register_backend
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "BackgroundRemover",
@@ -27,5 +28,7 @@ __all__ = [
     "generate_mask",
     "extract_object_at_point",
     "load_image",
+    "list_models",
+    "register_backend",
     "__version__",
 ]

@@ -16,7 +16,7 @@ from background_remove_sdk import __version__
 from background_remove_sdk.core import BackgroundRemover
 
 
-def create_app():
+def create_app(model: str = "inspyrenet", device: str | None = None):
     try:
         from flask import Flask, jsonify, request, send_file
     except ImportError as exc:
@@ -26,7 +26,7 @@ def create_app():
         ) from exc
 
     app = Flask("background_remove_sdk")
-    remover = BackgroundRemover()
+    remover = BackgroundRemover(model=model, device=device)
 
     def _read_image():
         if "image" not in request.files:
@@ -45,6 +45,7 @@ def create_app():
             {
                 "name": "background-remove-sdk",
                 "version": __version__,
+                "model": model,
                 "endpoints": ["/api/remove", "/api/mask", "/api/extract"],
             }
         )
@@ -88,9 +89,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="bg-remove-server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--model", default="inspyrenet", help='model spec "backend[:variant]"')
+    parser.add_argument("--device", default=None)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    create_app().run(host=args.host, port=args.port, debug=args.debug)
+    create_app(model=args.model, device=args.device).run(
+        host=args.host, port=args.port, debug=args.debug
+    )
 
 
 if __name__ == "__main__":

@@ -8,27 +8,31 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from background_remove_sdk.core import BackgroundRemover  # noqa: E402
+from background_remove_sdk.models.base import BaseBackend  # noqa: E402
 
 
-class FakeInSpyReNet:
-    """Stand-in for transparent_background.Remover.
+class FakeBackend(BaseBackend):
+    """Stand-in model backend: red channel > 127 counts as foreground."""
 
-    Treats every pixel with red channel > 127 as foreground.
-    """
+    name = "fake"
+    default_variant = "test"
+    variants = ("test",)
+    description = "Fake backend for tests."
+    install_hint = "n/a"
 
-    def process(self, image, type="rgba"):
+    def _load_model(self):
+        return object()
+
+    def predict_mask(self, image):
         rgb = np.asarray(image.convert("RGB"))
         foreground = rgb[:, :, 0] > 127
-        if type == "map":
-            return Image.fromarray((foreground * 255).astype(np.uint8), mode="L")
-        rgba = np.dstack([rgb, (foreground * 255).astype(np.uint8)])
-        return Image.fromarray(rgba, mode="RGBA")
+        return Image.fromarray((foreground * 255).astype(np.uint8), mode="L")
 
 
 @pytest.fixture
 def fake_remover():
-    remover = BackgroundRemover()
-    remover._remover = FakeInSpyReNet()
+    remover = BackgroundRemover(model="fake")
+    remover._backend = FakeBackend()
     return remover
 
 
@@ -47,5 +51,5 @@ def patched_shared_remover(monkeypatch, fake_remover):
     """Route the module-level convenience functions through the fake model."""
     from background_remove_sdk import core
 
-    monkeypatch.setattr(core, "_shared_remover", lambda mode, device: fake_remover)
+    monkeypatch.setattr(core, "_shared_remover", lambda model, device: fake_remover)
     return fake_remover

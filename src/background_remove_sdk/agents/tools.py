@@ -14,40 +14,46 @@ from typing import Any, Dict, Optional
 from background_remove_sdk import core
 
 
-def remove_background_tool(input_path: str, output_path: Optional[str] = None) -> Dict[str, Any]:
+def remove_background_tool(
+    input_path: str, output_path: Optional[str] = None, model: Optional[str] = None
+) -> Dict[str, Any]:
     """Remove the background from the image at ``input_path``.
 
     Saves a transparent PNG and returns its path. When ``output_path`` is
     omitted, the result is written next to the input as ``<name>_no_bg.png``.
     """
     out = Path(output_path) if output_path else core.default_output_path(input_path, "rgba")
-    image = core.remove_background(input_path, output_path=out)
+    image = core.remove_background(input_path, output_path=out, model=model or "inspyrenet")
     return {
         "output_path": str(out),
         "width": image.width,
         "height": image.height,
         "format": "PNG (RGBA)",
+        "model": model or "inspyrenet",
     }
 
 
-def generate_mask_tool(input_path: str, output_path: Optional[str] = None) -> Dict[str, Any]:
+def generate_mask_tool(
+    input_path: str, output_path: Optional[str] = None, model: Optional[str] = None
+) -> Dict[str, Any]:
     """Generate a grayscale foreground mask for the image at ``input_path``.
 
     Saves the mask as PNG and returns its path. When ``output_path`` is
     omitted, the result is written next to the input as ``<name>_mask.png``.
     """
     out = Path(output_path) if output_path else core.default_output_path(input_path, "mask")
-    image = core.generate_mask(input_path, output_path=out)
+    image = core.generate_mask(input_path, output_path=out, model=model or "inspyrenet")
     return {
         "output_path": str(out),
         "width": image.width,
         "height": image.height,
         "format": "PNG (grayscale mask)",
+        "model": model or "inspyrenet",
     }
 
 
 def extract_object_at_point_tool(
-    input_path: str, x: int, y: int, output_path: Optional[str] = None
+    input_path: str, x: int, y: int, output_path: Optional[str] = None, model: Optional[str] = None
 ) -> Dict[str, Any]:
     """Extract the foreground object at pixel ``(x, y)`` from the image.
 
@@ -56,19 +62,28 @@ def extract_object_at_point_tool(
     is omitted, the result is written as ``<name>_object.png``.
     """
     out = Path(output_path) if output_path else core.default_output_path(input_path, "object")
-    image = core.extract_object_at_point(input_path, x, y, output_path=out)
+    image = core.extract_object_at_point(input_path, x, y, output_path=out, model=model or "inspyrenet")
     return {
         "output_path": str(out),
         "width": image.width,
         "height": image.height,
         "format": "PNG (RGBA, cropped to object)",
+        "model": model or "inspyrenet",
     }
+
+
+def list_models_tool() -> Dict[str, Any]:
+    """List the available background-removal model backends and variants."""
+    from background_remove_sdk.models import list_models
+
+    return {"models": list_models()}
 
 
 TOOL_FUNCTIONS = {
     "remove_background": remove_background_tool,
     "generate_mask": generate_mask_tool,
     "extract_object_at_point": extract_object_at_point_tool,
+    "list_models": list_models_tool,
 }
 
 _INPUT_PATH_PARAM = {
@@ -78,6 +93,14 @@ _INPUT_PATH_PARAM = {
 _OUTPUT_PATH_PARAM = {
     "type": "string",
     "description": "Optional path for the output PNG. Defaults to a file next to the input.",
+}
+_MODEL_PARAM = {
+    "type": "string",
+    "description": (
+        'Optional model spec "backend[:variant]". Examples: "inspyrenet" (default), '
+        '"inspyrenet:fast", "rembg:u2net", "rembg:isnet-anime", "birefnet", "rmbg", '
+        '"ben2". Use the list_models tool to discover all options.'
+    ),
 }
 
 _TOOL_SCHEMAS = [
@@ -92,6 +115,7 @@ _TOOL_SCHEMAS = [
             "properties": {
                 "input_path": _INPUT_PATH_PARAM,
                 "output_path": _OUTPUT_PATH_PARAM,
+                "model": _MODEL_PARAM,
             },
             "required": ["input_path"],
         },
@@ -107,6 +131,7 @@ _TOOL_SCHEMAS = [
             "properties": {
                 "input_path": _INPUT_PATH_PARAM,
                 "output_path": _OUTPUT_PATH_PARAM,
+                "model": _MODEL_PARAM,
             },
             "required": ["input_path"],
         },
@@ -125,9 +150,18 @@ _TOOL_SCHEMAS = [
                 "x": {"type": "integer", "description": "X pixel coordinate inside the object."},
                 "y": {"type": "integer", "description": "Y pixel coordinate inside the object."},
                 "output_path": _OUTPUT_PATH_PARAM,
+                "model": _MODEL_PARAM,
             },
             "required": ["input_path", "x", "y"],
         },
+    },
+    {
+        "name": "list_models",
+        "description": (
+            "List the available background-removal model backends, their "
+            "variants, and install requirements."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]
 
@@ -163,5 +197,5 @@ def execute_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Unknown tool: {name!r}. Available: {sorted(TOOL_FUNCTIONS)}"}
     try:
         return func(**arguments)
-    except (TypeError, ValueError, FileNotFoundError) as exc:
+    except (TypeError, ValueError, FileNotFoundError, ImportError) as exc:
         return {"error": str(exc)}

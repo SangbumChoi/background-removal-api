@@ -14,8 +14,10 @@ class TestSchemas:
             assert tool["type"] == "function"
             params = tool["function"]["parameters"]
             assert params["type"] == "object"
-            assert "input_path" in params["properties"]
-            assert "input_path" in params["required"]
+            if tool["function"]["name"] != "list_models":
+                assert "input_path" in params["properties"]
+                assert "input_path" in params["required"]
+                assert "model" in params["properties"]
 
     def test_anthropic_format(self):
         tools = get_anthropic_tools()

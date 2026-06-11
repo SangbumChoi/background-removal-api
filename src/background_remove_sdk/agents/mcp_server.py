@@ -39,28 +39,47 @@ def build_server():
     )
 
     @server.tool()
-    def remove_background(input_path: str, output_path: Optional[str] = None) -> dict:
-        """Remove the background from an image and save a transparent PNG."""
+    def remove_background(
+        input_path: str, output_path: Optional[str] = None, model: Optional[str] = None
+    ) -> dict:
+        """Remove the background from an image and save a transparent PNG.
+
+        model: optional spec "backend[:variant]" such as "inspyrenet" (default),
+        "rembg:isnet-anime", "birefnet", "rmbg", "ben2" — see list_models.
+        """
         return tools.execute_tool(
-            "remove_background", {"input_path": input_path, "output_path": output_path}
+            "remove_background",
+            {"input_path": input_path, "output_path": output_path, "model": model},
         )
 
     @server.tool()
-    def generate_mask(input_path: str, output_path: Optional[str] = None) -> dict:
+    def generate_mask(
+        input_path: str, output_path: Optional[str] = None, model: Optional[str] = None
+    ) -> dict:
         """Generate a grayscale foreground mask for an image and save it as PNG."""
         return tools.execute_tool(
-            "generate_mask", {"input_path": input_path, "output_path": output_path}
+            "generate_mask",
+            {"input_path": input_path, "output_path": output_path, "model": model},
         )
 
     @server.tool()
     def extract_object_at_point(
-        input_path: str, x: int, y: int, output_path: Optional[str] = None
+        input_path: str,
+        x: int,
+        y: int,
+        output_path: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> dict:
         """Cut out the foreground object at pixel (x, y) and save it as a transparent PNG."""
         return tools.execute_tool(
             "extract_object_at_point",
-            {"input_path": input_path, "x": x, "y": y, "output_path": output_path},
+            {"input_path": input_path, "x": x, "y": y, "output_path": output_path, "model": model},
         )
+
+    @server.tool()
+    def list_models() -> dict:
+        """List available background-removal model backends and their variants."""
+        return tools.execute_tool("list_models", {})
 
     return server
 
